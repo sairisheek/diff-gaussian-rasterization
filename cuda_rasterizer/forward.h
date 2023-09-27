@@ -62,7 +62,7 @@ namespace FORWARD
 		float* out_color,
 		const float* depth,
 	    float* out_depth,
-		uint32_t* num_gauss);
+		int* num_gauss);
 }
 
 
