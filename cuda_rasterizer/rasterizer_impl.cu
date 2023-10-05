@@ -217,6 +217,8 @@ int CudaRasterizer::Rasterizer::forward(
 	const bool prefiltered,
 	float* out_color,
 	float* out_depth,
+	int* num_gauss,
+	float* accum_alpha,
 	int* radii,
 	bool debug)
 {
@@ -333,8 +335,10 @@ int CudaRasterizer::Rasterizer::forward(
 		imgState.n_contrib,
 		background,
 		out_color,
-		out_depth), debug)
-
+		out_depth,
+		num_gauss), debug)
+	cudaMemcpy(accum_alpha, imgState.accum_alpha, width * height * sizeof(float), cudaMemcpyDeviceToDevice);
+	//accum_alpha = imgState.accum_alpha;
 	return num_rendered;
 }
 
