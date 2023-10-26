@@ -52,7 +52,9 @@ RasterizeGaussiansCUDA(
 	const int degree,
 	const torch::Tensor& campos,
 	const bool prefiltered,
-	const bool debug)
+	const float beta_k,
+	const bool debug
+	)
 {
   if (means3D.ndimension() != 2 || means3D.size(1) != 3) {
     AT_ERROR("means3D must have dimensions (num_points, 3)");
@@ -115,6 +117,7 @@ RasterizeGaussiansCUDA(
 		num_gauss.contiguous().data<int>(),
 		accum_alpha.contiguous().data<float>(),
 		radii.contiguous().data<int>(),
+		beta_k,
 		debug);
   }
   return std::make_tuple(rendered, out_color, out_depth, num_gauss, accum_alpha, radii, geomBuffer, binningBuffer, imgBuffer);
@@ -143,6 +146,7 @@ std::tuple<torch::Tensor, torch::Tensor, torch::Tensor, torch::Tensor, torch::Te
 	const int R,
 	const torch::Tensor& binningBuffer,
 	const torch::Tensor& imageBuffer,
+	const float beta_k,
 	const bool debug) 
 {
   const int P = means3D.size(0);
@@ -164,6 +168,8 @@ std::tuple<torch::Tensor, torch::Tensor, torch::Tensor, torch::Tensor, torch::Te
   torch::Tensor dL_dsh = torch::zeros({P, M, 3}, means3D.options());
   torch::Tensor dL_dscales = torch::zeros({P, 3}, means3D.options());
   torch::Tensor dL_drotations = torch::zeros({P, 4}, means3D.options());
+  torch::Tensor dL_dz = torch::zeros({P, 1}, means3D.options());
+
   
   if(P != 0)
   {  
@@ -197,6 +203,8 @@ std::tuple<torch::Tensor, torch::Tensor, torch::Tensor, torch::Tensor, torch::Te
 	  dL_dsh.contiguous().data<float>(),
 	  dL_dscales.contiguous().data<float>(),
 	  dL_drotations.contiguous().data<float>(),
+	  dL_dz.contiguous().data<float>(),
+	  beta_k,
 	  debug);
   }
 

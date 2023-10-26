@@ -53,6 +53,7 @@ namespace CudaRasterizer
 			int* num_gauss,
 			float* accum_alpha,
 			int* radii = nullptr,
+			float beta_k = 0.0f,
 			bool debug = false);
 
 		static void backward(
@@ -85,6 +86,8 @@ namespace CudaRasterizer
 			float* dL_dsh,
 			float* dL_dscale,
 			float* dL_drot,
+			float* dL_dz,
+			float beta_k,
 			bool debug);
 	};
 };

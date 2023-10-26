@@ -273,7 +273,8 @@ renderCUDA(
 	const float* __restrict__ bg_color,
 	float* __restrict__ out_color,
 	float* __restrict__ out_depth,
-	int* __restrict__ num_gauss)
+	int* __restrict__ num_gauss,
+	float beta_k)
 {
 	// Identify current tile and associated min/max pixel range.
 	auto block = cg::this_thread_block();
@@ -358,8 +359,9 @@ renderCUDA(
 			// Eq. (3) from 3D Gaussian splatting paper.
 			for (int ch = 0; ch < CHANNELS; ch++)
 				C[ch] += features[collected_id[j] * CHANNELS + ch] * alpha * T;
-			D += depths[collected_id[j]] * alpha * T;
-
+			float depp = depths[collected_id[j]];
+			D += beta(depp, beta_k)*depp* alpha * T;
+			//D += depp * alpha * T;
 			T = test_T;
 			_num_gauss++;
 			// Keep track of last range entry to update this
@@ -381,6 +383,8 @@ renderCUDA(
 	}
 }
 
+
+
 void FORWARD::render(
 	const dim3 grid, dim3 block,
 	const uint2* ranges,
@@ -395,7 +399,8 @@ void FORWARD::render(
 	const float* bg_color,
 	float* out_color,
 	float* out_depth,
-	int* num_gauss)
+	int* num_gauss,
+	const float beta_k)
 {
 	renderCUDA<NUM_CHANNELS> << <grid, block >> > (
 		ranges,
@@ -410,7 +415,8 @@ void FORWARD::render(
 		bg_color,
 		out_color,
 		out_depth,
-		num_gauss);
+		num_gauss,
+		beta_k);
 }
 
 void FORWARD::preprocess(int P, int D, int M,

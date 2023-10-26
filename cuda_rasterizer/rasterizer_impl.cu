@@ -220,6 +220,7 @@ int CudaRasterizer::Rasterizer::forward(
 	int* num_gauss,
 	float* accum_alpha,
 	int* radii,
+	float beta_k,
 	bool debug)
 {
 	const float focal_y = height / (2.0f * tan_fovy);
@@ -336,7 +337,8 @@ int CudaRasterizer::Rasterizer::forward(
 		background,
 		out_color,
 		out_depth,
-		num_gauss), debug)
+		num_gauss, 
+		beta_k), debug)
 	cudaMemcpy(accum_alpha, imgState.accum_alpha, width * height * sizeof(float), cudaMemcpyDeviceToDevice);
 	//accum_alpha = imgState.accum_alpha;
 	return num_rendered;
@@ -374,6 +376,8 @@ void CudaRasterizer::Rasterizer::backward(
 	float* dL_dsh,
 	float* dL_dscale,
 	float* dL_drot,
+	float* dL_dz,
+	const float beta_k,
 	bool debug)
 {
 	GeometryState geomState = GeometryState::fromChunk(geom_buffer, P);
@@ -414,7 +418,9 @@ void CudaRasterizer::Rasterizer::backward(
 		(float3*)dL_dmean2D,
 		(float4*)dL_dconic,
 		dL_dopacity,
-		dL_dcolor), debug)
+		dL_dcolor,
+		dL_dz, 
+		beta_k), debug)
 
 	// Take care of the rest of preprocessing. Was the precomputed covariance
 	// given to us or a scales/rot pair? If precomputed, pass that. If not,
@@ -441,5 +447,6 @@ void CudaRasterizer::Rasterizer::backward(
 		dL_dcov3D,
 		dL_dsh,
 		(glm::vec3*)dL_dscale,
-		(glm::vec4*)dL_drot), debug)
+		(glm::vec4*)dL_drot,
+		dL_dz), debug)
 }
