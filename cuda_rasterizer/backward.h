@@ -32,6 +32,8 @@ namespace BACKWARD
 		const float* depths,
 		const float* final_Ts,
 		const uint32_t* n_contrib,
+		const int* num_gauss,
+		const float* avg_depth,
 		const float* dL_dpixels,
 		const float* dL_depths,
 		float3* dL_dmean2D,
@@ -39,6 +41,7 @@ namespace BACKWARD
 		float* dL_dopacity,
 		float* dL_dcolors,
 		float* dL_dz,
+		float* vars,
 		float beta_k);
 
 	void preprocess(

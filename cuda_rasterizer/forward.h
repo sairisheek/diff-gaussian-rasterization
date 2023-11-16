@@ -63,6 +63,8 @@ namespace FORWARD
 		float* out_color,
 		float* out_depth,
 		int* num_gauss,
+		int* mode_id,
+		float* modes,
 		float beta_k);
 }
 

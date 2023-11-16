@@ -417,6 +417,8 @@ renderCUDA(
 	const float* __restrict__ depths,
 	const float* __restrict__ final_Ts,
 	const uint32_t* __restrict__ n_contrib,
+	const int* __restrict__ num_gauss,
+	const float* __restrict__ avg_depth,
 	const float* __restrict__ dL_dpixels,
 	const float* __restrict__ dL_depths,
 	float3* __restrict__ dL_dmean2D,
@@ -424,6 +426,7 @@ renderCUDA(
 	float* __restrict__ dL_dopacity,
 	float* __restrict__ dL_dcolors,
 	float* __restrict__ dL_dz,
+	float* __restrict__ vars,
 	float beta_k)
 {
 	// We rasterize again. Compute necessary block info.
@@ -453,6 +456,7 @@ renderCUDA(
 	// product of all (1 - alpha) factors. 
 	const float T_final = inside ? final_Ts[pix_id] : 0;
 	float T = T_final;
+	float _num_gauss = (float) num_gauss[pix_id];
 
 	// We start from the back. The ID of the last contributing
 	// Gaussian is known from each pixel from the forward.
@@ -462,10 +466,13 @@ renderCUDA(
 	float accum_rec[C] = { 0 };
 	float dL_dpixel[C];
 	float dL_depth;
+	float a_d;
+	float V = 0;
 	float accum_depth_rec = 0;
 	if (inside){
 		for (int i = 0; i < C; i++)
 			dL_dpixel[i] = dL_dpixels[i * H * W + pix_id];
+			a_d = avg_depth[pix_id];
 	        dL_depth = dL_depths[pix_id];
 	}
 
@@ -542,13 +549,18 @@ renderCUDA(
 				atomicAdd(&(dL_dcolors[global_id * C + ch]), dchannel_dcolor * dL_dchannel);
 			}
 			const float c_d = collected_depths[j];
-			float beta_val = beta(c_d, beta_k);
-			accum_depth_rec = last_alpha * last_depth * beta(last_depth, beta_k) + (1.f - last_alpha) * accum_depth_rec;
+			accum_depth_rec = last_alpha * last_depth + (1.f - last_alpha) * accum_depth_rec;
 			last_depth = c_d;
-			dL_dalpha += (c_d * beta_val - accum_depth_rec) * dL_depth;
+			dL_dalpha += (c_d - accum_depth_rec) * dL_depth;
 			dL_dalpha *= T;
 			// Update last alpha (to be used in the next iteration)
 			last_alpha = alpha;
+			float dldz = 0;
+			float res =  a_d - c_d; 
+
+			if(res < 0)
+				res = 0;
+			V += res;
 
 			// Account for fact that alpha also influences how much of
 			// the background color is added if nothing left to blend
@@ -576,8 +588,13 @@ renderCUDA(
 
 			// Update gradients w.r.t. opacity of the Gaussian
 			atomicAdd(&(dL_dopacity[global_id]), G * dL_dalpha);
-			atomicAdd(&(dL_dz[global_id]), beta_val * (1.0f - beta_k*c_d) * alpha * T * dL_depth);
+			atomicAdd(&(dL_dz[global_id]),  alpha * T * dL_depth);
+
 		}
+	}
+
+	if(inside){
+		vars[pix_id] = V;
 	}
 }
 
@@ -646,7 +663,7 @@ void BACKWARD::preprocess(
 		dL_dsh,
 		dL_dscale,
 		dL_drot,
-		(float*)dL_dz);
+		dL_dz);
 }
 
 void BACKWARD::render(
@@ -661,6 +678,8 @@ void BACKWARD::render(
 	const float* depths,
 	const float* final_Ts,
 	const uint32_t* n_contrib,
+	const int* num_gauss,
+	const float* avg_depth,
 	const float* dL_dpixels,
 	const float* dL_depths,
 	float3* dL_dmean2D,
@@ -668,6 +687,7 @@ void BACKWARD::render(
 	float* dL_dopacity,
 	float* dL_dcolors,
 	float* dL_dz,
+	float* vars,
 	float beta_k)
 {
 	renderCUDA<NUM_CHANNELS> << <grid, block >> >(
@@ -681,6 +701,8 @@ void BACKWARD::render(
 		depths,
 		final_Ts,
 		n_contrib,
+		num_gauss,
+		avg_depth,
 		dL_dpixels,
 		dL_depths,
 		dL_dmean2D,
@@ -688,6 +710,7 @@ void BACKWARD::render(
 		dL_dopacity,
 		dL_dcolors,
 		dL_dz,
+		vars,
 		beta_k
 		);
 }

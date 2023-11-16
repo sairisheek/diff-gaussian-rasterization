@@ -217,8 +217,14 @@ int CudaRasterizer::Rasterizer::forward(
 	const bool prefiltered,
 	float* out_color,
 	float* out_depth,
+	int* point_list,
+	float* out_means2D,
+	float* out_conic_opacity,
 	int* num_gauss,
+	int* mode_id,
+	float* modes,
 	float* accum_alpha,
+	bool ret_pts,
 	int* radii,
 	float beta_k,
 	bool debug)
@@ -276,6 +282,7 @@ int CudaRasterizer::Rasterizer::forward(
 		prefiltered
 	), debug)
 
+	
 	// Compute prefix sum over full list of touched tile counts by Gaussians
 	// E.g., [2, 3, 0, 2, 1] -> [2, 5, 5, 7, 8]
 	CHECK_CUDA(cub::DeviceScan::InclusiveSum(geomState.scanning_space, geomState.scan_size, geomState.tiles_touched, geomState.point_offsets, P), debug)
@@ -283,6 +290,7 @@ int CudaRasterizer::Rasterizer::forward(
 	// Retrieve total number of Gaussian instances to launch and resize aux buffers
 	int num_rendered;
 	CHECK_CUDA(cudaMemcpy(&num_rendered, geomState.point_offsets + P - 1, sizeof(int), cudaMemcpyDeviceToHost), debug);
+	//printf("Num rendered: %d\n", num_rendered);
 
 	size_t binning_chunk_size = required<BinningState>(num_rendered);
 	char* binning_chunkptr = binningBuffer(binning_chunk_size);
@@ -323,6 +331,7 @@ int CudaRasterizer::Rasterizer::forward(
 
 	// Let each tile blend its range of Gaussians independently in parallel
 	const float* feature_ptr = colors_precomp != nullptr ? colors_precomp : geomState.rgb;
+	
 	CHECK_CUDA(FORWARD::render(
 		tile_grid, block,
 		imgState.ranges,
@@ -337,9 +346,22 @@ int CudaRasterizer::Rasterizer::forward(
 		background,
 		out_color,
 		out_depth,
-		num_gauss, 
+		num_gauss,
+		mode_id,
+		modes, 
 		beta_k), debug)
 	cudaMemcpy(accum_alpha, imgState.accum_alpha, width * height * sizeof(float), cudaMemcpyDeviceToDevice);
+
+	//print the first element of geomState.means2D
+	
+	if(ret_pts){
+		cudaMemcpy(point_list, binningState.point_list, num_rendered * sizeof(int), cudaMemcpyDeviceToDevice);
+		cudaMemcpy(out_means2D, geomState.means2D, P * sizeof(float2), cudaMemcpyDeviceToDevice);
+		cudaMemcpy(out_conic_opacity, geomState.conic_opacity, P * sizeof(float4), cudaMemcpyDeviceToDevice);
+	}
+
+	//printf("geomState.means2D[0] = %f, %f\n", geomState.means2D[0].x, geomState.means2D[0].y);
+	
 	//accum_alpha = imgState.accum_alpha;
 	return num_rendered;
 }
@@ -367,6 +389,8 @@ void CudaRasterizer::Rasterizer::backward(
 	char* img_buffer,
 	const float* dL_dpix,
 	const float* dL_depths,
+	const int* num_gauss,
+	const float* avg_depth,
 	float* dL_dmean2D,
 	float* dL_dconic,
 	float* dL_dopacity,
@@ -377,6 +401,7 @@ void CudaRasterizer::Rasterizer::backward(
 	float* dL_dscale,
 	float* dL_drot,
 	float* dL_dz,
+	float* vars,
 	const float beta_k,
 	bool debug)
 {
@@ -413,13 +438,16 @@ void CudaRasterizer::Rasterizer::backward(
 		depth_ptr,
 		imgState.accum_alpha,
 		imgState.n_contrib,
+		num_gauss,
+		avg_depth,
 		dL_dpix,
 		dL_depths,
 		(float3*)dL_dmean2D,
 		(float4*)dL_dconic,
 		dL_dopacity,
 		dL_dcolor,
-		dL_dz, 
+		dL_dz,
+		vars, 
 		beta_k), debug)
 
 	// Take care of the rest of preprocessing. Was the precomputed covariance

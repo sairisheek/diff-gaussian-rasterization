@@ -274,6 +274,8 @@ renderCUDA(
 	float* __restrict__ out_color,
 	float* __restrict__ out_depth,
 	int* __restrict__ num_gauss,
+	int* __restrict__ mode_id,
+	float* __restrict__ modes,
 	float beta_k)
 {
 	// Identify current tile and associated min/max pixel range.
@@ -302,11 +304,16 @@ renderCUDA(
 
 	// Initialize helper variables
 	float T = 1.0f;
+	float prev_depp = 0.0f;
 	uint32_t contributor = 0;
 	uint32_t last_contributor = 0;
 	float C[CHANNELS] = { 0 };
 	float D = { 0 };
 	int _num_gauss = 0;
+	float topW = 0;
+	int endIdx = -1;
+	int startIdx = -1;
+	float topD = 0;
 
 	// Iterate over batches until all done or range is complete
 	for (int i = 0; i < rounds; i++, toDo -= BLOCK_SIZE)
@@ -360,7 +367,18 @@ renderCUDA(
 			for (int ch = 0; ch < CHANNELS; ch++)
 				C[ch] += features[collected_id[j] * CHANNELS + ch] * alpha * T;
 			float depp = depths[collected_id[j]];
-			D += beta(depp, beta_k)*depp* alpha * T;
+			float w = alpha*T;
+			D += depp*w;
+
+			if(startIdx == -1)
+				startIdx = range.x + progress;
+			
+			if (w > topW){
+				topW = w;
+				endIdx = range.x + progress;
+				topD = depp;
+			}
+
 			//D += depp * alpha * T;
 			T = test_T;
 			_num_gauss++;
@@ -380,6 +398,9 @@ renderCUDA(
 			out_color[ch * H * W + pix_id] = C[ch] + T * bg_color[ch];
 		out_depth[pix_id] = D;
 		num_gauss[pix_id] = _num_gauss;
+		mode_id[pix_id] = startIdx;
+		mode_id[H*W + pix_id] = endIdx;
+		modes[pix_id] = topD;
 	}
 }
 
@@ -400,6 +421,8 @@ void FORWARD::render(
 	float* out_color,
 	float* out_depth,
 	int* num_gauss,
+	int* mode_id,
+	float* modes,
 	const float beta_k)
 {
 	renderCUDA<NUM_CHANNELS> << <grid, block >> > (
@@ -416,6 +439,8 @@ void FORWARD::render(
 		out_color,
 		out_depth,
 		num_gauss,
+		mode_id,
+		modes,
 		beta_k);
 }
 
